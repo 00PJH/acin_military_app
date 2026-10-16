@@ -1,66 +1,55 @@
 import time
 import os
-from save_data_db import add_data
-from bk_excel_crw import crw_news_excel
-from bigkinds_row_modify import create_bk_news_data_name
+import sys
+from save_data_csv import save_pipeline_results_to_csv_and_json
+from bigkinds_row_modify import get_bk_news_data_path
 
-
-def delete_file(file_path):
+def execute_pipeline_job():
     """
-    지정된 파일을 삭제하는 함수.
-    파일이 존재하지 않을 경우 오류를 무시함.
+    빅카인즈 엑셀 파일(NewsResult_20241119-20241119.xlsx) 로드
+    -> 제목 기반 국방 기사 분류(KLUE-BERT)
+    -> 본문 텍스트 요약(KoBART)
+    -> CSV 및 웹 데모용 JSON 파일 저장
     """
     try:
-        if os.path.exists(file_path):
-            os.remove(file_path)
-            print(f"파일 삭제 완료: {file_path}")
-        else:
-            print(f"파일이 존재하지 않음: {file_path}")
-    except Exception as e:
-        print(f"파일 삭제 중 오류 발생: {e}")
+        excel_file = get_bk_news_data_path()
+        if not os.path.exists(excel_file):
+            print(f"[오류] 빅카인즈 엑셀 파일이 존재하지 않습니다: {excel_file}")
+            return False
 
-def execute_periodically():
+        print("\n" + "="*60)
+        print(" [AI 국방 뉴스 파이프라인] 빅카인즈 데이터 처리 및 CSV 추출 시작")
+        print("="*60)
+
+        # 30개 국방 기사 요약 및 전체 국방 기사 CSV 저장
+        save_pipeline_results_to_csv_and_json(max_summary_items=30)
+
+        print("="*60)
+        print(" [AI 국방 뉴스 파이프라인] 처리 및 CSV/JSON 저장 완료!")
+        print("="*60 + "\n")
+        return True
+    except Exception as e:
+        print(f"[오류 발생] 파이프라인 실행 중 예외 발생: {e}")
+        return False
+
+def execute_periodically(interval_hours=6):
     """
-    crw_news_excel 실행 -> 파일 삭제 -> add_data 실행을 1분 간격으로 반복.
-    처음 루프에서는 파일 삭제를 생략.
+    지정된 주기(기본 6시간)마다 파이프라인 자동 실행.
     """
-    
+    print(f"AI 국방 뉴스 자동 분석 데몬 시작 (업데이트 주기: {interval_hours}시간)")
+
+    # 최초 1회 즉시 실행
+    execute_pipeline_job()
 
     while True:
-        try:
-            # 파일 경로 생성
-            file_path = create_bk_news_data_name()
-            print(f"확인 대상 파일 경로: {file_path}")
+        wait_seconds = interval_hours * 60 * 60
+        print(f"\n다음 업데이트까지 {interval_hours}시간 ({wait_seconds}초) 대기 중...")
+        time.sleep(wait_seconds)
+        execute_pipeline_job()
 
-            # 파일이 존재하면 삭제
-            if os.path.exists(file_path):
-                print(f"파일이 존재합니다. 삭제를 진행합니다: {file_path}")
-                delete_file(file_path)
-
-            # 1. crw_news_excel 실행
-            print("뉴스 Excel 크롤링 시작...")
-            crw_news_excel()
-            print("뉴스 Excel 크롤링 완료")
-
-            # 2. add_data 실행
-            print("데이터베이스에 데이터 추가 시작...")
-            add_data()
-            print("데이터베이스에 데이터 추가 완료")
-
-            # 첫 번째 실행 완료 표시
-            first_execution = False
-
-        except Exception as e:
-            print(f"작업 중 오류 발생: {e}")
-
-        # # 1분 대기
-        # print(" 1분 대기 시작...")
-        # time.sleep(60)  # 6시간 = 21600초
-
-       # 6시간 대기
-        print("6시간 대기 시작...")
-        time.sleep(6 * 60 * 60)  # 6시간 = 21600초
-
-# 실행
 if __name__ == "__main__":
-    execute_periodically()
+    # 단일 실행 모드
+    if len(sys.argv) > 1 and sys.argv[1] == "--daemon":
+        execute_periodically(6)
+    else:
+        execute_pipeline_job()
